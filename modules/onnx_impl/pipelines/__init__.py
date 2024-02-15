@@ -24,12 +24,22 @@ SUBMODELS_SD = ("text_encoder", "unet", "vae_encoder", "vae_decoder",)
 SUBMODELS_SDXL = ("text_encoder", "text_encoder_2", "unet", "vae_encoder", "vae_decoder",)
 SUBMODELS_SDXL_REFINER = ("text_encoder_2", "unet", "vae_encoder", "vae_decoder",)
 
+SUBMODELS_LARGE = ("text_encoder_2", "unet",)
+
 
 class PipelineBase(TorchCompatibleModule, diffusers.DiffusionPipeline):
     model_type: str
     sd_model_hash: str
     sd_checkpoint_info: CheckpointInfo
     sd_model_checkpoint: str
+
+    @property
+    def lowvram(self):
+        return False
+
+    @lowvram.setter
+    def lowvram(self, _):
+        pass
 
     def __init__(self): # pylint: disable=super-init-not-called
         self.model_type = self.__class__.__name__
@@ -148,6 +158,7 @@ class OnnxRawPipeline(PipelineBase):
         pipeline.sd_model_hash = self.sd_model_hash
         pipeline.sd_checkpoint_info = self.sd_checkpoint_info
         pipeline.scheduler = self.scheduler
+        pipeline.cond_stage_key = ""
         return pipeline
 
     def convert(self, submodels: List[str], in_dir: os.PathLike, out_dir: os.PathLike):
@@ -182,7 +193,7 @@ class OnnxRawPipeline(PipelineBase):
             onnx.save_model(
                 model,
                 os.path.join(destination, "model.onnx"),
-                save_as_external_data=submodel == "unet",
+                save_as_external_data=submodel in SUBMODELS_LARGE,
                 all_tensors_to_one_file=True,
                 location="weights.pb",
             )
@@ -330,7 +341,6 @@ class OnnxRawPipeline(PipelineBase):
         config.vae = os.path.join(models_path, "VAE", shared.opts.sd_vae)
         if not os.path.isfile(config.vae):
             del config.vae
-        config.vae_sdxl_fp16_fix = self._is_sdxl and not shared.opts.diffusers_vae_upcast
 
         config.width = p.width
         config.height = p.height
